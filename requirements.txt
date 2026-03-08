@@ -1,4 +1,4 @@
-flask==3.0.0
-python-telegram-bot==20.7
-yt-dlp==2023.12.30
-nest-asyncio==1.5.8
+python-telegram-bot
+yt-dlp
+nest_asyncio
+
