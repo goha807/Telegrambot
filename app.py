@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, send_file
+from math import ceil
 import os
 import json
 import re
@@ -370,5 +371,6 @@ def promo():
     return jsonify({'success': True, 'message': f'+{reward} ⭐'})
 
 if __name__ == '__main__':
-    print(f"🌐 Веб-сайт запущено на порту {PORT}")
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🌐 Веб-сайт запущено на порту {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
