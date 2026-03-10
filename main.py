@@ -21,7 +21,7 @@ from telegram.error import TimedOut, BadRequest
 nest_asyncio.apply()
 
 # ================= КОНФІГУРАЦІЯ =================
-# 🔴 ВСТАВТЕ НОВИЙ ТОКЕН СЮДИ!
+# 🔴 ВСТАВТЕ НОВИЙ ТОКЕН СЮДИ! (Залишено ваш токен з запиту)
 BOT_TOKEN = "8213254007:AAFQkGiQqi1YirAvF4VuGcF3CL6WpqFVSGA"
 ADMINS_IDS = [1813590984]
 MAX_SIZE = 50 * 1024 * 1024
@@ -47,15 +47,9 @@ SHOP_PRICES = {
     "vip_7_days": 1000,
     "vip_30_days": 3500,
     "unlimited_24h": 500,
-    "priority_pass": 50
+    "priority_pass": 50,
+    "case_luck": 150  # Ціна кейсу
 }
-
-# ================= ЗАВАНТАЖЕННЯ COOKIES ДЛЯ RAILWAY =================
-# Завантажуємо cookies.txt зі змінної середовища (обов'язково для хостингів!)
-if os.getenv('COOKIES_TXT'):
-    with open('cookies.txt', 'w', encoding='utf-8') as f:
-        f.write(os.getenv('COOKIES_TXT'))
-    print("✅ Cookies loaded from environment variable")
 
 # ================= ЗБЕРЕЖЕННЯ ДАНИХ =================
 def ensure_data_dir():
@@ -96,19 +90,16 @@ def load_data():
             global user_data, promocodes, required_channels
             user_data = data.get('user_data', {})
             required_channels = data.get('required_channels', [])
-            
             raw_promos = data.get('promocodes', {})
             for code, pdata in raw_promos.items():
                 if pdata.get('expires') and isinstance(pdata['expires'], str):
                     pdata['expires'] = datetime.fromisoformat(pdata['expires'])
                 promocodes[code] = pdata
-            
             for uid, stats in user_data.items():
                 if stats.get('vip_expiration') and isinstance(stats['vip_expiration'], str):
                     stats['vip_expiration'] = datetime.fromisoformat(stats['vip_expiration'])
                 if stats.get('unlimited_dl_expires') and isinstance(stats['unlimited_dl_expires'], str):
                     stats['unlimited_dl_expires'] = datetime.fromisoformat(stats['unlimited_dl_expires'])
-            
             print("📂 Дані завантажено")
         except Exception as e:
             print(f"❌ Помилка завантаження: {e}")
@@ -150,8 +141,8 @@ def get_user_stats(user_id):
         "unlimited_dl_expires": None, "priority_passes": 0
     })
     for key, default in [("is_vip", False), ("vip_expiration", None), ("used_promos", []),
-                         ("has_channel_reward", False), ("stars", 50), 
-                         ("unlimited_dl_expires", None), ("priority_passes", 0)]:
+                         ("has_channel_reward", False), ("stars", 50),
+                         ("unlimited_dl_expires", None), ("priority_passes", 0), ("downloads", 0)]:
         if key not in stats:
             stats[key] = default
     return stats
@@ -192,7 +183,6 @@ async def is_user_subscribed(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return True
     user_id = update.effective_user.id
     missing_channels = []
-
     for channel in required_channels:
         try:
             member = await context.bot.get_chat_member(chat_id=channel['id'], user_id=user_id)
@@ -200,7 +190,7 @@ async def is_user_subscribed(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 missing_channels.append(channel)
         except Exception:
             missing_channels.append(channel)
-
+    
     if missing_channels:
         keyboard = []
         for channel in missing_channels:
@@ -208,7 +198,6 @@ async def is_user_subscribed(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "➡️ Підписатись",
                 url=f"https://t.me/{channel['username'].lstrip('@')}"
             )])
-        
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❗️ Для використання бота, будь ласка, підпишіться на наші канали.",
@@ -267,7 +256,7 @@ LANGUAGES = {
         "start_greeting": "Привіт! Я допоможу тобі завантажити 🎵 музику або 🎬 відео з YouTube, SoundCloud або TikTok.\n📌 Натисни кнопку нижче, щоб почати:",
         "start_button_audio": "🎵 Музика",
         "start_button_video": "🎬 Відео",
-        "help_text": "📖 Довідка\nПідтримувані джерела:\n- YouTube (аудіо, відео)\n- SoundCloud (аудіо)\n- TikTok (відео)\n\nОсновні команди:\n`start` — запуск\n`help` — допомога\n`shop` — магазин\n`cancel` — скасувати\n`restart` — перезапуск\n`ping` — перевірка\n`stats` — статистика\n`lang` — мова\n`find` — пошук\n`support` — підтримка\n`level` — рівень\n`achievements` — досягнення\n`topusers` — топ\n`random` — випадковий трек\n`promo <code>` — промокод\n`balance` — баланс\n`dice <ставка>` — кубик\n`flipcoin <ставка> <вибір>` — монетка\n`duel <ID> <ставка>` — дуель",
+        "help_text": "📖 Довідка\nПідтримувані джерела:\n- YouTube (аудіо, відео)\n- SoundCloud (аудіо)\n- TikTok (відео)\nОсновні команди:\n`start` — запуск\n`help` — допомога\n`shop` — магазин\n`cancel` — скасувати\n`restart` — перезапуск\n`ping` — перевірка\n`stats` — статистика\n`lang` — мова\n`find` — пошук\n`support` — підтримка\n`level` — рівень\n`achievements` — досягнення\n`topusers` — топ\n`random` — випадковий трек\n`promo <code>` — промокод\n`balance` — баланс\n`dice <ставка>` — кубик\n`flipcoin <ставка> <вибір>` — монетка\n`duel <ID> <ставка>` — дуель",
         "ping_success": "✅ Бот активний!",
         "stats_text": "📊 Твоя статистика:\n👑 Статус: {vip_status}\n🎵 Треків: {tracks}\n🎬 Відео: {videos}\n📌 Джерело: {source}",
         "lang_select": "🌐 Обери мову:",
@@ -275,94 +264,19 @@ LANGUAGES = {
         "level_text": "🌟 Твій рівень: {level}\nЗавантажено: {downloads}\nДо наступного: {needed}",
         "topusers_empty": "📊 Ще немає статистики!",
         "topusers_text": "🏆 Топ-5:\n",
-        "genre_empty": "❓ Вкажіть жанр. Приклад: `/genre рок`",
-        "genre_set": "✅ Жанр встановлено: {genre}",
-        "random_track_searching": "🎧 Знаходжу трек...",
-        "random_track_caption": "🎵 Випадковий трек:\n{title}",
-        "error_downloading": "❌ Помилка: {e}",
-        "find_empty": "❓ Напишіть опис. Приклад: `/find пісня з фільму`",
-        "find_searching": "🔍 Шукаю: {query}",
-        "find_caption": "🎵 {title}",
-        "find_error": "❌ Помилка пошуку: {e}",
-        "select_source_text": "🔍 Обери джерело:",
-        "select_quality_text": "🎚 Обери якість:",
-        "ask_query_text": "📥 Надішли посилання або назву:",
-        "download_started": "🔄 Завантаження...",
-        "file_too_large": "⚠️ Файл занадто великий (>50MB)",
-        "download_complete": "✅ Готово!",
-        "sent_audio_caption": "🎵 {title}",
-        "sent_video_caption": "🎬 {title}",
-        "sent_doc_caption": "📎 {title}",
-        "download_error": "❌ Помилка: {e}",
-        "cancelled": "Скасовано",
-        "restart_message": "Перезапуск. Введіть /start",
-        "achievements_text": "🏆 Досягнення:\n",
-        "achievement_unlocked": "🎉 Нове досягнення: {name}!",
-        "achievement_no_achievements": "😕 Поки немає досягнень",
-        "lang_changed": "🌐 Мова: {lang}",
-        "inline_downloading": "📥 Завантаження...",
-        "inline_sent": "✅ Відправлено!",
-        "inline_error": "❌ Помилка",
-        "inline_no_results": "⚠️ Нічого не знайдено",
-        "group_search_started": "🔍 Шукаю: {query}...",
-        "no_results_found": "😕 Нічого не знайдено для '{query}'",
         "balance_text": "💰 Баланс: {stars} ⭐\nСтатус: {vip_status}",
-        "dice_roll": "🎲 Випало: {value}!",
-        "dice_win": "🎉 Виграв {win_amount} ⭐! Баланс: {stars}",
-        "dice_lose": "💔 Програв {lost_amount} ⭐. Баланс: {stars}",
-        "dice_neutral": "⚖️ Випало {value}. Ставка повернута. Баланс: {stars}",
-        "dice_no_money": "❌ Недостатньо зірок. Баланс: {stars}",
-        "dice_invalid_bet": "❗️ Ставка має бути > 0",
-        "queue_add": "🔄 В черзі. Позиція: {pos}. Пріоритет: {priority}",
-        "queue_start": "🚀 Починаю...",
-        "not_enough_stars_find": "❌ Потрібно {cost} ⭐. Баланс: {stars}",
-        "not_enough_stars_random": "❌ Потрібно {cost} ⭐. Баланс: {stars}",
-        "not_enough_stars_download": "❌ Потрібно {cost} ⭐. Баланс: {stars}",
-        "blocked_user_message": "❌ Акаунт заблоковано",
-        "vip_status_active": "👑 VIP",
-        "vip_status_inactive": "Звичайний",
-        "spam_warning": "⏳ Зачекайте трохи",
         "shop_title": "🛒 Магазин\nБаланс: {stars} ⭐",
         "shop_vip_1": "👑 VIP 1 день ({cost}⭐)",
         "shop_vip_7": "👑 VIP 7 днів ({cost}⭐)",
         "shop_vip_30": "👑 VIP 30 днів ({cost}⭐)",
         "shop_unlimited": "♾ Безліміт 24г ({cost}⭐)",
         "shop_priority": "🚀 Пріоритет ({cost}⭐)",
+        "shop_case": "🎁 Кейс удачі ({cost}⭐)",
         "shop_success": "✅ Куплено: {item}!",
         "shop_fail": "❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stars}",
-        "shop_priority_desc": "Ваш запит буде першим у черзі",
-        "must_subscribe": "❗️ Підпишіться на канали",
-        "subscribe_button": "➡️ Підписатись",
-        "subscription_verified": "✅ Отримано: {reward} ⭐ + VIP на 1 день!",
-        "promo_enter": "❓ Приклад: `/promo CODE`",
-        "promo_activated": "✅ Промокод {code}! +{reward} ⭐",
-        "promo_not_found": "❌ Промокод {code} не знайдено",
-        "promo_expired": "❌ Промокод {code} закінчився",
-        "promo_no_uses": "❌ Промокод {code} використано",
-        "promo_already_used": "❌ Ви вже використовували {code}",
-        "flipcoin_empty": "❓ Приклад: `/flipcoin 20 орел`",
-        "flipcoin_invalid_bet": "❗️ Ставка > 0",
-        "flipcoin_invalid_choice": "❗️ орел або решка",
-        "flipcoin_no_money": "❌ Недостатньо ⭐. Баланс: {stars}",
-        "flipcoin_result": "🎲 Випало: {result}!",
-        "flipcoin_win": "🎉 Виграв {win_amount} ⭐! Баланс: {stars}",
-        "flipcoin_lose": "💔 Програв {lost_amount} ⭐. Баланс: {stars}",
-        "duel_empty": "❓ Приклад: `/duel 123456 50`",
-        "duel_invalid_bet": "❗️ Ставка > 0",
-        "duel_self": "❌ Не можна грати з собою",
-        "duel_no_money": "❌ Недостатньо ⭐. Баланс: {stars}",
-        "duel_opponent_no_money": "❌ У @{username} недостатньо ⭐",
-        "duel_invite_text": "⚔️ @{challenger} викликає на дуель! Ставка: {bet} ⭐",
-        "duel_invite_buttons": "Прийняти,Відхилити",
-        "duel_accepted_challenger": "✅ @{opponent} прийняв!",
-        "duel_accepted_opponent": "✅ Прийнято!",
-        "duel_declined_challenger": "❌ @{opponent} відмовився",
-        "duel_declined_opponent": "❌ Відхилено",
-        "duel_start": "🔥 Дуель! @{c} vs @{o}, ставка: {bet} ⭐",
-        "duel_result": "🎲 @{username}: {roll}!",
-        "duel_win": "🏆 Переможець: @{winner}! +{win_amount} ⭐",
-        "duel_draw": "🤝 Нічия!",
-        "duel_expired": "❌ Дуель неактуальна",
+        "case_win_vip": "🎉 В кейсі випало: VIP на 1 день!",
+        "case_win_stars": "🎉 В кейсі випало: {amount} ⭐!",
+        "case_lose": "😕 В кейсі нічого цінного...",
         "admin_help_text": "👑 Адмін-панель:\n`/add_stars <ID> <кількість>`\n`/remove_stars <ID> <кількість>`\n`/set_downloads <ID> <кількість>`\n`/user_stats <ID>`\n`/block <ID>`\n`/unblock <ID>`\n`/grant_vip <ID>`\n`/revoke_vip <ID>`\n`/send_to <ID> <текст>`\n`/broadcast <текст>`\n`/bot_stats`\n`/create_promo <код> <зірки> <рази> <дні>`\n`/delete_promo <код>`\n`/list_promos`\n`/set_channel @username`\n`/remove_channel @username`\n`/list_channels`\n`/unset_channel`",
         "stars_added": "✅ +{amount} ⭐ користувачу {user_id}. Баланс: {stars}",
         "stars_removed": "✅ -{amount} ⭐ у {user_id}. Баланс: {stars}",
@@ -415,16 +329,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if check_spam(update.effective_user.id): return
     if await check_blocked(update, context): return ConversationHandler.END
     if not await is_user_subscribed(update, context): return ConversationHandler.END
+    
     user = update.effective_user
     log_action(user, "Запустив /start")
     stats = get_user_stats(user.id)
     context.user_data["lang"] = stats.get("lang", "ua")
-
+    
     keyboard = [
         [InlineKeyboardButton("🎵 Музика", callback_data="audio")],
         [InlineKeyboardButton("🎬 Відео", callback_data="video")]
     ]
-    await update.message.reply_text("Привіт! Обери тип:", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # ВИПРАВЛЕНО: Повернуто потрібний текст привітання
+    await update.message.reply_text(
+        "Привіт! Я допоможу тобі завантажити 🎵 музику або 🎬 відео з YouTube, SoundCloud або TikTok.\n📌 Натисни кнопку нижче, щоб почати:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return SELECTING
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -441,7 +361,7 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not stats["achievements"]:
         await update.message.reply_text("😕 Поки немає досягнень")
         return
-    response = "🏆 *Досягнення:*\n"
+    response = "🏆 *Досягнення:*:\n"
     for achievement in stats["achievements"]:
         response += f"- {achievement}\n"
     await update.message.reply_text(response, parse_mode="Markdown")
@@ -505,18 +425,33 @@ async def top_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if check_spam(update.effective_user.id): return
     if await check_blocked(update, context): return
     if not await is_user_subscribed(update, context): return
+    
     if not user_data:
         await update.message.reply_text("📊 Ще немає статистики!")
         return
-    sorted_users = sorted(user_data.items(), key=lambda x: x[1]['downloads'], reverse=True)[:5]
-    response = "🏆 *Топ-5:*\n"
+    
+    # ВИПРАВЛЕНО: Безпечне сортування
+    sorted_users = sorted(
+        user_data.items(), 
+        key=lambda x: x[1].get('downloads', 0), 
+        reverse=True
+    )[:5]
+    
+    if not sorted_users:
+        await update.message.reply_text("📊 Ще немає статистики!")
+        return
+
+    response = "🏆 *Топ-5:*:\n"
     for i, (uid, stats) in enumerate(sorted_users, 1):
         try:
             user_info = await context.bot.get_chat(uid)
             name = user_info.username or user_info.first_name
+            if not name: name = f"ID {uid}"
         except:
             name = f"ID {uid}"
-        response += f"{i}. @{name} — {stats['downloads']} завантажень\n"
+        downloads = stats.get('downloads', 0)
+        response += f"{i}. @{name} — {downloads} завантажень\n"
+    
     await update.message.reply_markdown(response)
 
 async def genre_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -612,7 +547,8 @@ async def shop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"👑 VIP 7 днів ({SHOP_PRICES['vip_7_days']}⭐)", callback_data="shop_buy_vip_7")],
         [InlineKeyboardButton(f"👑 VIP 30 днів ({SHOP_PRICES['vip_30_days']}⭐)", callback_data="shop_buy_vip_30")],
         [InlineKeyboardButton(f"♾ Безліміт 24г ({SHOP_PRICES['unlimited_24h']}⭐)", callback_data="shop_buy_unlimited")],
-        [InlineKeyboardButton(f"🚀 Пріоритет ({SHOP_PRICES['priority_pass']}⭐)", callback_data="shop_buy_priority")]
+        [InlineKeyboardButton(f"🚀 Пріоритет ({SHOP_PRICES['priority_pass']}⭐)", callback_data="shop_buy_priority")],
+        [InlineKeyboardButton(f"🎁 Кейс удачі ({SHOP_PRICES['case_luck']}⭐)", callback_data="shop_buy_case")] # ДОДАНО КЕЙС
     ]
     await update.message.reply_markdown(
         f"🛒 *Магазин*\nБаланс: {stats['stars']} ⭐",
@@ -625,6 +561,7 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     stats = get_user_stats(user_id)
     data = query.data
+    
     items = {
         "shop_buy_vip_1": (SHOP_PRICES["vip_1_day"], "VIP (1 день)", lambda: extend_vip(stats, days=1)),
         "shop_buy_vip_7": (SHOP_PRICES["vip_7_days"], "VIP (7 днів)", lambda: extend_vip(stats, days=7)),
@@ -632,6 +569,31 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "shop_buy_unlimited": (SHOP_PRICES["unlimited_24h"], "Безліміт 24г", lambda: extend_unlimited(stats)),
         "shop_buy_priority": (SHOP_PRICES["priority_pass"], "Пріоритет", lambda: add_priority(stats))
     }
+    
+    # Логіка для кейсу
+    if data == "shop_buy_case":
+        cost = SHOP_PRICES["case_luck"]
+        if stats["stars"] >= cost:
+            stats["stars"] -= cost
+            # Розіграш нагород
+            chance = random.random()
+            if chance < 0.10: # 10% VIP
+                extend_vip(stats, days=1)
+                await query.message.reply_text("🎉 В кейсі випало: VIP на 1 день!")
+            elif chance < 0.50: # 40% 50 stars
+                stats["stars"] += 50
+                await query.message.reply_text("🎉 В кейсі випало: 50 ⭐!")
+            elif chance < 0.80: # 30% 100 stars
+                stats["stars"] += 100
+                await query.message.reply_text("🎉 В кейсі випало: 100 ⭐!")
+            else: # 20% 200 stars
+                stats["stars"] += 200
+                await query.message.reply_text("🎉 В кейсі випало: 200 ⭐!")
+            save_data()
+        else:
+            await query.message.reply_text(f"❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stats['stars']}")
+        return
+
     if data in items:
         cost, name, action = items[data]
         if stats["stars"] >= cost:
@@ -706,19 +668,24 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     if await check_blocked(update, context): return ConversationHandler.END
     if not await is_user_subscribed(update, context): return ConversationHandler.END
+    
     user_query = update.message.text.strip()
     media_type = context.user_data.get("type", "audio")
     user = update.effective_user
     stats = get_user_stats(user.id)
+    
     if stats.get("genre"):
         user_query = f"{user_query} {stats['genre']} genre"
         stats["genre"] = None
+    
     url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*')
     if not url_pattern.match(user_query):
         user_query = f"ytsearch1:{user_query}"
+    
     quality = context.user_data.get("quality", "128")
     base_cost = COSTS[media_type][quality]
     cost = get_final_cost(user.id, base_cost)
+    
     priority = 10
     if is_vip_active(user.id):
         priority = 1
@@ -726,6 +693,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
         priority = 5
         stats["priority_passes"] -= 1
         await update.message.reply_text("🚀 Використано Priority Pass!")
+    
     await download_queue.put((priority, time.time(), user.id, user_query, media_type, quality, cost, context.user_data.copy(), update.message.chat_id, None))
     position = download_queue.qsize()
     prio_text = "VIP" if priority == 1 else ("Високий" if priority == 5 else "Звичайний")
@@ -743,7 +711,9 @@ async def process_queue():
                     user_info = await application.bot.get_chat(user_id)
                 except:
                     user_info = type('obj', (object,), {'username': 'unknown', 'id': user_id})()
+                
                 log_action(user_info, f"Завантаження (Пріоритет {priority}): {user_query}")
+                
                 if inline_message_id:
                     try:
                         await application.bot.edit_message_text(inline_message_id=inline_message_id, text="🔄 Завантаження...")
@@ -751,8 +721,10 @@ async def process_queue():
                         pass
                 else:
                     await application.bot.send_message(chat_id=chat_id, text="🚀 Починаю...")
+                
                 stats = get_user_stats(user_id)
                 real_cost = get_final_cost(user_id, cost) if cost > 0 else 0
+                
                 if stats["stars"] < real_cost:
                     error_text = f"❌ Потрібно {real_cost} ⭐. Баланс: {stats['stars']}"
                     if inline_message_id:
@@ -764,6 +736,7 @@ async def process_queue():
                         await application.bot.send_message(chat_id=chat_id, text=error_text)
                     download_queue.task_done()
                     continue
+                
                 stats["stars"] -= real_cost
                 tmpdir = None
                 try:
@@ -779,6 +752,7 @@ async def process_queue():
                             await application.bot.send_message(chat_id=chat_id, text=error_text)
                         download_queue.task_done()
                         continue
+                    
                     size = os.path.getsize(filepath)
                     if size > MAX_SIZE:
                         error_text = "⚠️ Файл занадто великий (>50MB)"
@@ -820,6 +794,7 @@ async def process_queue():
                                         pass
                                 else:
                                     await application.bot.send_document(chat_id=chat_id, document=f, filename=os.path.basename(filepath), caption=f"📎 {title}")
+                        
                         stats["downloads"] += 1
                         stats["source"] = u_data.get("source", "N/A")
                         stats["source_counts"][stats["source"]] = stats["source_counts"].get(stats["source"], 0) + 1
@@ -861,11 +836,10 @@ async def check_achievements_from_queue(context, user_id):
             except:
                 pass
 
-# ================= 🔧 ВИПРАВЛЕНА ФУНКЦІЯ ЗАВАНТАЖЕННЯ =================
+# ================= 🔧 ВИПРАВЛЕНА ФУНКЦІЯ ЗАВАНТАЖЕННЯ (БЕЗ COOKIES) =================
 async def download_media(query, audio=True, quality="best"):
     tmpdir = tempfile.mkdtemp()
-    
-    # Розширені налаштування для обходу YouTube bot detection на хостингах
+    # ВИПРАВЛЕНО: Прибрано завантаження cookies.txt, щоб уникнути помилок
     base_opts = {
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "quiet": True,
@@ -875,8 +849,6 @@ async def download_media(query, audio=True, quality="best"):
         "extractor_retries": 3,
         "fragment_retries": 3,
         "retry_sleep_functions": {"extractor": lambda n: 2 ** n},
-        
-        # Критично: використовуємо різні клієнти YouTube для обходу блокувань
         "extractor_args": {
             "youtube": {
                 "player_client": ["ios", "web", "tv_embedded", "android"],
@@ -884,8 +856,6 @@ async def download_media(query, audio=True, quality="best"):
                 "initial_data": ["*"]
             }
         },
-        
-        # Реалістичні заголовки браузера (iPhone Safari)
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -896,16 +866,11 @@ async def download_media(query, audio=True, quality="best"):
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none"
         },
-        
-        # Додаткові опції для стабільності
         "no_check_certificate": True,
         "socket_timeout": 30,
         "retries": 3
     }
-    
-    # Підтримка cookies.txt (ОБОВ'ЯЗКОВО для Railway/хостингів!)
-    if os.path.exists('cookies.txt'):
-        base_opts["cookiefile"] = 'cookies.txt'
+    # Cookies більше не завантажуються
     
     if audio:
         if quality == "best":
@@ -932,36 +897,31 @@ async def download_media(query, audio=True, quality="best"):
             "merge_output_format": "mp4",
             "postprocessors": [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
-
+    
     with yt_dlp.YoutubeDL(opts) as ydl:
         try:
             info = await asyncio.to_thread(ydl.extract_info, query, download=True)
-            
             if not info or ('entries' in info and not info['entries']):
                 shutil.rmtree(tmpdir)
                 return None, None, None
-            
             entry = info['entries'][0] if 'entries' in info and info['entries'] else info
             files = os.listdir(tmpdir)
-            
             if not files:
                 shutil.rmtree(tmpdir)
                 return None, None, None
-                
         except Exception as e:
             print(f"❌ Download error: {e}")
             shutil.rmtree(tmpdir)
             return None, None, None
-
-    file = files[0]
-    safe_name = clean_filename(file)
-    safe_path = os.path.join(tmpdir, safe_name)
-    
-    if safe_name != file and os.path.exists(os.path.join(tmpdir, file)):
-        os.rename(os.path.join(tmpdir, file), safe_path)
-    
-    title = clean_filename(entry.get("title", "Без назви"))
-    return safe_path, title, tmpdir
+        
+        file = files[0]
+        safe_name = clean_filename(file)
+        safe_path = os.path.join(tmpdir, safe_name)
+        if safe_name != file and os.path.exists(os.path.join(tmpdir, file)):
+            os.rename(os.path.join(tmpdir, file), safe_path)
+        
+        title = clean_filename(entry.get("title", "Без назви"))
+        return safe_path, title, tmpdir
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await check_blocked(update, context): return ConversationHandler.END
@@ -1225,8 +1185,8 @@ async def duel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Відхилено")
         challenger_name = challenger_user.username or challenger_user.first_name
         await context.bot.send_message(chat_id=challenger_chat_id, text=f"❌ @{challenger_name} відмовився")
-    if duel_id in duel_data:
-        del duel_data[duel_id]
+        if duel_id in duel_data:
+            del duel_data[duel_id]
 
 # ================= INLINE =================
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1679,7 +1639,7 @@ async def admin_set_downloads_id_input(update: Update, context: ContextTypes.DEF
         return AWAIT_SET_DOWNLOADS_COUNT
     except:
         await update.message.reply_text("❌ Некоректно")
-    return ConversationHandler.END
+        return ConversationHandler.END
 
 async def admin_set_downloads_count_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1706,12 +1666,11 @@ async def periodic_save():
 
 # ================= MAIN =================
 application = None
-
 async def main():
     global application
     load_data()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-
+    
     # Handlers
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("ping", ping))
@@ -1733,7 +1692,7 @@ async def main():
     application.add_handler(CommandHandler("promo", promo_command))
     application.add_handler(CommandHandler("shop", shop_command))
     application.add_handler(CallbackQueryHandler(shop_callback, pattern=r"^shop_"))
-
+    
     # Admin commands
     application.add_handler(CommandHandler("adminhelp", admin_help))
     application.add_handler(CommandHandler("add_stars", add_stars))
@@ -1754,7 +1713,7 @@ async def main():
     application.add_handler(CommandHandler("remove_channel", remove_channel))
     application.add_handler(CommandHandler("list_channels", list_channels))
     application.add_handler(CommandHandler("unset_channel", unset_channel))
-
+    
     # Conversation handlers
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -1767,7 +1726,7 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel), CommandHandler("restart", restart)],
         per_message=False
     )
-
+    
     admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_command)],
         states={
@@ -1781,12 +1740,12 @@ async def main():
         fallbacks=[CommandHandler("cancel", admin_cancel)],
         per_message=False
     )
-
+    
     application.add_handler(conv_handler)
     application.add_handler(admin_conv_handler)
     application.add_handler(InlineQueryHandler(inline_query))
     application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND, text_message_handler))
-
+    
     print("🤖 Бот активний!")
     asyncio.create_task(process_queue())
     asyncio.create_task(periodic_save())
