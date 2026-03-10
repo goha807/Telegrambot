@@ -1,4 +1,6 @@
 python-telegram-bot
 yt-dlp
+flask
+gunicorn
 nest_asyncio
 
