@@ -12,16 +12,12 @@ import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ConversationHandler, ContextTypes, filters, InlineQueryHandler, ChosenInlineResultHandler
+    CallbackQueryHandler, ConversationHandler, ContextTypes, filters, InlineQueryHandler
 )
 import yt_dlp
-import nest_asyncio
 from telegram.error import TimedOut, BadRequest
 
-nest_asyncio.apply()
-
 # ================= КОНФІГУРАЦІЯ =================
-# 🔴 ВСТАВТЕ НОВИЙ ТОКЕН СЮДИ! (Залишено ваш токен з запиту)
 BOT_TOKEN = "8213254007:AAFQkGiQqi1YirAvF4VuGcF3CL6WpqFVSGA"
 ADMINS_IDS = [1813590984]
 MAX_SIZE = 50 * 1024 * 1024
@@ -40,6 +36,7 @@ duel_data = {}
 promocodes = {}
 required_channels = []
 last_activity = {}
+application = None
 
 # --- Ціни ---
 SHOP_PRICES = {
@@ -48,7 +45,9 @@ SHOP_PRICES = {
     "vip_30_days": 3500,
     "unlimited_24h": 500,
     "priority_pass": 50,
-    "case_luck": 150  # Ціна кейсу
+    "case_bronze": 100,
+    "case_silver": 250,
+    "case_gold": 500
 }
 
 # ================= ЗБЕРЕЖЕННЯ ДАНИХ =================
@@ -83,11 +82,11 @@ def save_data():
 
 def load_data():
     ensure_data_dir()
+    global user_data, promocodes, required_channels
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            global user_data, promocodes, required_channels
             user_data = data.get('user_data', {})
             required_channels = data.get('required_channels', [])
             raw_promos = data.get('promocodes', {})
@@ -109,10 +108,6 @@ def load_data():
 # ================= ДОПОМІЖНІ ФУНКЦІЇ =================
 def is_admin(user_id):
     return user_id in ADMINS_IDS
-
-def get_text(context: ContextTypes.DEFAULT_TYPE, key: str) -> str:
-    lang = context.user_data.get("lang", "ua")
-    return LANGUAGES.get(lang, LANGUAGES["ua"]).get(key, f"{key}")
 
 def log_action(user, action: str):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -188,7 +183,8 @@ async def is_user_subscribed(update: Update, context: ContextTypes.DEFAULT_TYPE)
             member = await context.bot.get_chat_member(chat_id=channel['id'], user_id=user_id)
             if member.status not in ['member', 'administrator', 'creator']:
                 missing_channels.append(channel)
-        except Exception:
+        except Exception as e:
+            log_action(update.effective_user, f"Помилка перевірки підписки: {e}")
             missing_channels.append(channel)
     
     if missing_channels:
@@ -232,7 +228,11 @@ async def check_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for downloads_needed, achievement_name in [(1, "Новачок"), (10, "Аматор"), (50, "Меломан"), (100, "Майстер музики")]:
         if current_downloads >= downloads_needed and achievement_name not in stats["achievements"]:
             stats["achievements"].append(achievement_name)
-            await update.message.reply_text(f"🎉 Нове досягнення: {achievement_name}! 🎉", parse_mode="Markdown")
+            log_action(update.effective_user, f"Розблокував досягнення: {achievement_name}")
+            try:
+                await update.message.reply_text(f"🎉 Нове досягнення: {achievement_name}! 🎉", parse_mode="Markdown")
+            except:
+                pass
             save_data()
 
 async def check_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -250,75 +250,6 @@ async def check_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
         return True
     return False
 
-# ================= СИСТЕМА МОВ =================
-LANGUAGES = {
-    "ua": {
-        "start_greeting": "Привіт! Я допоможу тобі завантажити 🎵 музику або 🎬 відео з YouTube, SoundCloud або TikTok.\n📌 Натисни кнопку нижче, щоб почати:",
-        "start_button_audio": "🎵 Музика",
-        "start_button_video": "🎬 Відео",
-        "help_text": "📖 Довідка\nПідтримувані джерела:\n- YouTube (аудіо, відео)\n- SoundCloud (аудіо)\n- TikTok (відео)\nОсновні команди:\n`start` — запуск\n`help` — допомога\n`shop` — магазин\n`cancel` — скасувати\n`restart` — перезапуск\n`ping` — перевірка\n`stats` — статистика\n`lang` — мова\n`find` — пошук\n`support` — підтримка\n`level` — рівень\n`achievements` — досягнення\n`topusers` — топ\n`random` — випадковий трек\n`promo <code>` — промокод\n`balance` — баланс\n`dice <ставка>` — кубик\n`flipcoin <ставка> <вибір>` — монетка\n`duel <ID> <ставка>` — дуель",
-        "ping_success": "✅ Бот активний!",
-        "stats_text": "📊 Твоя статистика:\n👑 Статус: {vip_status}\n🎵 Треків: {tracks}\n🎬 Відео: {videos}\n📌 Джерело: {source}",
-        "lang_select": "🌐 Обери мову:",
-        "support_text": "💬 Підтримка: https://t.me/MyDownloaderSupport",
-        "level_text": "🌟 Твій рівень: {level}\nЗавантажено: {downloads}\nДо наступного: {needed}",
-        "topusers_empty": "📊 Ще немає статистики!",
-        "topusers_text": "🏆 Топ-5:\n",
-        "balance_text": "💰 Баланс: {stars} ⭐\nСтатус: {vip_status}",
-        "shop_title": "🛒 Магазин\nБаланс: {stars} ⭐",
-        "shop_vip_1": "👑 VIP 1 день ({cost}⭐)",
-        "shop_vip_7": "👑 VIP 7 днів ({cost}⭐)",
-        "shop_vip_30": "👑 VIP 30 днів ({cost}⭐)",
-        "shop_unlimited": "♾ Безліміт 24г ({cost}⭐)",
-        "shop_priority": "🚀 Пріоритет ({cost}⭐)",
-        "shop_case": "🎁 Кейс удачі ({cost}⭐)",
-        "shop_success": "✅ Куплено: {item}!",
-        "shop_fail": "❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stars}",
-        "case_win_vip": "🎉 В кейсі випало: VIP на 1 день!",
-        "case_win_stars": "🎉 В кейсі випало: {amount} ⭐!",
-        "case_lose": "😕 В кейсі нічого цінного...",
-        "admin_help_text": "👑 Адмін-панель:\n`/add_stars <ID> <кількість>`\n`/remove_stars <ID> <кількість>`\n`/set_downloads <ID> <кількість>`\n`/user_stats <ID>`\n`/block <ID>`\n`/unblock <ID>`\n`/grant_vip <ID>`\n`/revoke_vip <ID>`\n`/send_to <ID> <текст>`\n`/broadcast <текст>`\n`/bot_stats`\n`/create_promo <код> <зірки> <рази> <дні>`\n`/delete_promo <код>`\n`/list_promos`\n`/set_channel @username`\n`/remove_channel @username`\n`/list_channels`\n`/unset_channel`",
-        "stars_added": "✅ +{amount} ⭐ користувачу {user_id}. Баланс: {stars}",
-        "stars_removed": "✅ -{amount} ⭐ у {user_id}. Баланс: {stars}",
-        "user_not_found": "❌ Користувач {user_id} не знайдено",
-        "message_sent": "✅ Надіслано {user_id}",
-        "broadcast_started": "✅ Початок розсилки...",
-        "user_blocked": "✅ Заблоковано {user_id}",
-        "user_unblocked": "✅ Розблоковано {user_id}",
-        "bot_stats_text": "📊 Статистика:\nКористувачів: {total_users}\nЗавантажень: {total_downloads}\nТреків: {total_tracks}\nВідео: {total_videos}\nДжерело: {most_popular_source}",
-        "downloads_set": "✅ Встановлено {count} завантажень для {user_id}",
-        "admin_menu_title": "👑 Адмін-меню",
-        "admin_button_add_stars": "➕ Додати ⭐",
-        "admin_button_remove_stars": "➖ Забрати ⭐",
-        "admin_button_set_downloads": "📊 Завантаження",
-        "admin_button_user_stats": "👤 Статистика",
-        "admin_button_help": "📖 Допомога",
-        "admin_button_exit": "⬅️ Вихід",
-        "admin_prompt_add_stars": "Введіть: `ID кількість`",
-        "admin_prompt_remove_stars": "Введіть: `ID кількість`",
-        "admin_prompt_user_stats": "Введіть ID",
-        "admin_prompt_set_downloads_id": "Введіть ID",
-        "admin_prompt_set_downloads_count": "Введіть кількість для {user_id}",
-        "admin_invalid_input": "❌ Некоректно",
-        "admin_action_cancelled": "Скасовано",
-        "vip_granted": "✅ VIP надано {user_id}",
-        "vip_revoked": "✅ VIP забрано у {user_id}",
-        "promo_created": "✅ Промокод {code}: {reward}⭐, {uses} раз(и), до {expires}",
-        "promo_create_format": "❌ Формат: `/create_promo код зірки рази дні`",
-        "promo_deleted": "✅ Промокод {code} видалено",
-        "promo_delete_format": "❌ Формат: `/delete_promo код`",
-        "promo_list_empty": "😕 Немає промокодів",
-        "promo_list_header": "📜 Промокоди:\n",
-        "channel_set": "✅ Канал {username} додано",
-        "channel_removed": "✅ Канал {username} видалено",
-        "channel_list": "📋 Канали:\n{channels}",
-        "channel_set_error": "❌ Не знайдено канал {username}",
-        "channel_set_format": "❌ Формат: `/set_channel @username`",
-        "channel_unset": "✅ Підписку вимкнено"
-    }
-}
-LANGUAGES["en"] = {**LANGUAGES["ua"]}
-
 COSTS = {
     "audio": {"128": 10, "192": 15, "256": 20, "base_find": 15, "base_random": 10},
     "video": {"360": 25, "480": 35, "720": 50, "1080": 70}
@@ -326,9 +257,13 @@ COSTS = {
 
 # ================= КОМАНДИ КОРИСТУВАЧА =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return ConversationHandler.END
-    if not await is_user_subscribed(update, context): return ConversationHandler.END
+    if check_spam(update.effective_user.id):
+        log_action(update.effective_user, "Спам /start")
+        return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
+    if not await is_user_subscribed(update, context):
+        return ConversationHandler.END
     
     user = update.effective_user
     log_action(user, "Запустив /start")
@@ -340,7 +275,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎬 Відео", callback_data="video")]
     ]
     
-    # ВИПРАВЛЕНО: Повернуто потрібний текст привітання
     await update.message.reply_text(
         "Привіт! Я допоможу тобі завантажити 🎵 музику або 🎬 відео з YouTube, SoundCloud або TikTok.\n📌 Натисни кнопку нижче, щоб почати:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -348,27 +282,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SELECTING
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
-    await update.message.reply_markdown(get_text(context, "help_text"))
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Використав /help")
+    text = """📖 Довідка
+Підтримувані джерела:
+- YouTube (аудіо, відео)
+- SoundCloud (аудіо)
+- TikTok (відео)
+Основні команди:
+`start` — запуск
+`help` — допомога
+`shop` — магазин
+`cancel` — скасувати
+`restart` — перезапуск
+`ping` — перевірка
+`stats` — статистика
+`lang` — мова
+`find` — пошук
+`support` — підтримка
+`level` — рівень
+`achievements` — досягнення
+`topusers` — топ
+`random` — випадковий трек
+`promo <code>` — промокод
+`balance` — баланс
+`dice <ставка>` — кубик
+`flipcoin <ставка> <вибір>` — монетка
+`duel <ID> <ставка>` — дуель"""
+    await update.message.reply_markdown(text)
 
 async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Перевірив /achievements")
     stats = get_user_stats(update.effective_user.id)
     if not stats["achievements"]:
         await update.message.reply_text("😕 Поки немає досягнень")
         return
-    response = "🏆 *Досягнення:*:\n"
+    response = "🏆 *Досягнення*:\n"
     for achievement in stats["achievements"]:
         response += f"- {achievement}\n"
     await update.message.reply_text(response, parse_mode="Markdown")
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    log_action(update.effective_user, "Використав /lang")
     keyboard = [
         [InlineKeyboardButton("🇺🇦 Українська", callback_data="lang_ua")],
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
@@ -381,22 +351,30 @@ async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang_code = query.data.split("_")[1]
     context.user_data["lang"] = lang_code
     get_user_stats(query.from_user.id)["lang"] = lang_code
+    log_action(query.from_user, f"Змінив мову на {lang_code}")
     await query.edit_message_text(f"🌐 Мова: {lang_code.upper()}")
     save_data()
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    log_action(update.effective_user, "Використав /ping")
     await update.message.reply_text("✅ Бот активний!")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Перевірив /stats")
     user = update.effective_user
     stats = get_user_stats(user.id)
     vip_status = "👑 VIP" if is_vip_active(user.id) else "Звичайний"
-    text = f"📊 *Статистика:*\n"
+    text = f"📊 *Статистика*:\n"
     text += f"👑 Статус: {vip_status}\n"
     text += f"🎵 Треків: {stats['tracks']}\n"
     text += f"🎬 Відео: {stats['videos']}\n"
@@ -404,14 +382,21 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(text)
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    log_action(update.effective_user, "Використав /support")
     await update.message.reply_text("💬 Підтримка: https://t.me/MyDownloaderSupport")
 
 async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Перевірив /level")
     stats = get_user_stats(update.effective_user.id)
     level = calculate_level(stats['downloads'])
     needed = (level * 10) - stats['downloads']
@@ -422,18 +407,21 @@ async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def top_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Перевірив /topusers")
     
     if not user_data:
         await update.message.reply_text("📊 Ще немає статистики!")
         return
     
-    # ВИПРАВЛЕНО: Безпечне сортування
     sorted_users = sorted(
-        user_data.items(), 
-        key=lambda x: x[1].get('downloads', 0), 
+        user_data.items(),
+        key=lambda x: x[1].get('downloads', 0),
         reverse=True
     )[:5]
     
@@ -441,12 +429,13 @@ async def top_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📊 Ще немає статистики!")
         return
 
-    response = "🏆 *Топ-5:*:\n"
+    response = "🏆 *Топ-5*:\n"
     for i, (uid, stats) in enumerate(sorted_users, 1):
         try:
             user_info = await context.bot.get_chat(uid)
             name = user_info.username or user_info.first_name
-            if not name: name = f"ID {uid}"
+            if not name:
+                name = f"ID {uid}"
         except:
             name = f"ID {uid}"
         downloads = stats.get('downloads', 0)
@@ -455,9 +444,13 @@ async def top_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(response)
 
 async def genre_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Встановив жанр: {context.args}")
     if not context.args:
         await update.message.reply_markdown("❓ Вкажіть жанр. Приклад: `/genre рок`")
         return
@@ -467,9 +460,13 @@ async def genre_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def random_track(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Використав /random")
     user = update.effective_user
     cost = get_final_cost(user.id, COSTS["audio"]["base_random"])
     stats = get_user_stats(user.id)
@@ -486,7 +483,7 @@ async def random_track(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = random.choice(tracks)
     tmpdir = None
     try:
-        filepath, title, tmpdir = await download_media(query, audio=True, quality="best")
+        filepath, title, tmpdir = await download_media(query, audio=True, quality="192")
         if not filepath:
             await update.message.reply_text("😕 Нічого не знайдено")
             return
@@ -494,18 +491,24 @@ async def random_track(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_audio(f, caption=f"🎵 *{title}*", parse_mode="Markdown")
         stats["downloads"] += 1
         stats["tracks"] += 1
+        log_action(update.effective_user, f"Завантажив трек: {title}")
         await check_achievements(update, context)
         save_data()
     except Exception as e:
+        log_action(update.effective_user, f"Помилка завантаження: {e}")
         await update.message.reply_text(f"❌ Помилка: {e}")
     finally:
         if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir)
 
 async def find(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Використав /find: {context.args}")
     if not context.args:
         await update.message.reply_markdown("❓ Напишіть опис. Приклад: `/find пісня`")
         return
@@ -520,7 +523,7 @@ async def find(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🔍 Шукаю: {' '.join(context.args)}")
     tmpdir = None
     try:
-        filepath, title, tmpdir = await download_media(query, audio=True, quality="best")
+        filepath, title, tmpdir = await download_media(query, audio=True, quality="192")
         if not filepath:
             await update.message.reply_text("😕 Нічого не знайдено")
             return
@@ -528,19 +531,25 @@ async def find(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_audio(f, caption=f"🎵 {title}")
         stats["downloads"] += 1
         stats["tracks"] += 1
+        log_action(update.effective_user, f"Завантажив через /find: {title}")
         await check_achievements(update, context)
         save_data()
     except Exception as e:
+        log_action(update.effective_user, f"Помилка /find: {e}")
         await update.message.reply_text(f"❌ Помилка: {e}")
     finally:
         if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir)
 
-# ================= МАГАЗИН =================
+# ================= МАГАЗИН (3 КЕЙСИ) =================
 async def shop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Відкрив /shop")
     stats = get_user_stats(update.effective_user.id)
     keyboard = [
         [InlineKeyboardButton(f"👑 VIP 1 день ({SHOP_PRICES['vip_1_day']}⭐)", callback_data="shop_buy_vip_1")],
@@ -548,7 +557,9 @@ async def shop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"👑 VIP 30 днів ({SHOP_PRICES['vip_30_days']}⭐)", callback_data="shop_buy_vip_30")],
         [InlineKeyboardButton(f"♾ Безліміт 24г ({SHOP_PRICES['unlimited_24h']}⭐)", callback_data="shop_buy_unlimited")],
         [InlineKeyboardButton(f"🚀 Пріоритет ({SHOP_PRICES['priority_pass']}⭐)", callback_data="shop_buy_priority")],
-        [InlineKeyboardButton(f"🎁 Кейс удачі ({SHOP_PRICES['case_luck']}⭐)", callback_data="shop_buy_case")] # ДОДАНО КЕЙС
+        [InlineKeyboardButton(f"🥉 Бронзовий кейс ({SHOP_PRICES['case_bronze']}⭐)", callback_data="shop_case_bronze")],
+        [InlineKeyboardButton(f"🥈 Срібний кейс ({SHOP_PRICES['case_silver']}⭐)", callback_data="shop_case_silver")],
+        [InlineKeyboardButton(f"🥇 Золотий кейс ({SHOP_PRICES['case_gold']}⭐)", callback_data="shop_case_gold")]
     ]
     await update.message.reply_markdown(
         f"🛒 *Магазин*\nБаланс: {stats['stars']} ⭐",
@@ -561,6 +572,7 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     stats = get_user_stats(user_id)
     data = query.data
+    log_action(query.from_user, f"Натиснув в магазині: {data}")
     
     items = {
         "shop_buy_vip_1": (SHOP_PRICES["vip_1_day"], "VIP (1 день)", lambda: extend_vip(stats, days=1)),
@@ -570,39 +582,94 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "shop_buy_priority": (SHOP_PRICES["priority_pass"], "Пріоритет", lambda: add_priority(stats))
     }
     
-    # Логіка для кейсу
-    if data == "shop_buy_case":
-        cost = SHOP_PRICES["case_luck"]
-        if stats["stars"] >= cost:
-            stats["stars"] -= cost
-            # Розіграш нагород
-            chance = random.random()
-            if chance < 0.10: # 10% VIP
-                extend_vip(stats, days=1)
-                await query.message.reply_text("🎉 В кейсі випало: VIP на 1 день!")
-            elif chance < 0.50: # 40% 50 stars
-                stats["stars"] += 50
-                await query.message.reply_text("🎉 В кейсі випало: 50 ⭐!")
-            elif chance < 0.80: # 30% 100 stars
-                stats["stars"] += 100
-                await query.message.reply_text("🎉 В кейсі випало: 100 ⭐!")
-            else: # 20% 200 stars
-                stats["stars"] += 200
-                await query.message.reply_text("🎉 В кейсі випало: 200 ⭐!")
-            save_data()
-        else:
-            await query.message.reply_text(f"❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stats['stars']}")
+    # Логіка для 3 кейсів
+    if data == "shop_case_bronze":
+        await open_case(query, stats, "bronze")
         return
-
+    elif data == "shop_case_silver":
+        await open_case(query, stats, "silver")
+        return
+    elif data == "shop_case_gold":
+        await open_case(query, stats, "gold")
+        return
+    
     if data in items:
         cost, name, action = items[data]
         if stats["stars"] >= cost:
             stats["stars"] -= cost
             action()
+            log_action(query.from_user, f"Купив: {name}")
             await query.message.reply_text(f"✅ Куплено: {name}!")
             save_data()
         else:
             await query.message.reply_text(f"❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stats['stars']}")
+
+async def open_case(query, stats, case_type):
+    prices = {
+        "bronze": SHOP_PRICES["case_bronze"],
+        "silver": SHOP_PRICES["case_silver"],
+        "gold": SHOP_PRICES["case_gold"]
+    }
+    
+    rewards = {
+        "bronze": [
+            (0.40, "stars", 20),
+            (0.30, "stars", 50),
+            (0.20, "stars", 100),
+            (0.10, "vip", 1)
+        ],
+        "silver": [
+            (0.30, "stars", 100),
+            (0.30, "stars", 200),
+            (0.25, "stars", 300),
+            (0.10, "vip", 3),
+            (0.05, "priority", 5)
+        ],
+        "gold": [
+            (0.20, "stars", 300),
+            (0.25, "stars", 500),
+            (0.20, "stars", 750),
+            (0.15, "vip", 7),
+            (0.10, "vip", 30),
+            (0.10, "priority", 10)
+        ]
+    }
+    
+    cost = prices[case_type]
+    case_names = {"bronze": "🥉 Бронзовий", "silver": "🥈 Срібний", "gold": "🥇 Золотий"}
+    
+    if stats["stars"] < cost:
+        await query.message.reply_text(f"❌ Недостатньо ⭐. Потрібно: {cost}, Є: {stats['stars']}")
+        return
+    
+    stats["stars"] -= cost
+    
+    # Розіграш нагороди
+    chance = random.random()
+    cumulative = 0
+    reward_type = "stars"
+    reward_value = 0
+    
+    for prob, rtype, value in rewards[case_type]:
+        cumulative += prob
+        if chance <= cumulative:
+            reward_type = rtype
+            reward_value = value
+            break
+    
+    log_action(query.from_user, f"Відкрив {case_names[case_type]} кейс, випало: {reward_type} {reward_value}")
+    
+    if reward_type == "stars":
+        stats["stars"] += reward_value
+        await query.message.reply_text(f"🎉 {case_names[case_type]} кейс!\nВипало: {reward_value} ⭐!")
+    elif reward_type == "vip":
+        extend_vip(stats, days=reward_value)
+        await query.message.reply_text(f"🎉 {case_names[case_type]} кейс!\nВипало: VIP на {reward_value} днів!")
+    elif reward_type == "priority":
+        stats["priority_passes"] += reward_value
+        await query.message.reply_text(f"🎉 {case_names[case_type]} кейс!\nВипало: {reward_value} Priority Pass!")
+    
+    save_data()
 
 def extend_vip(stats, days=1):
     curr = stats.get("vip_expiration") or datetime.now()
@@ -621,10 +688,12 @@ def add_priority(stats):
 
 # ================= ЗАВАНТАЖЕННЯ =================
 async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await check_blocked(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     context.user_data["type"] = query.data
+    log_action(query.from_user, f"Обрав тип: {query.data}")
     if query.data == "audio":
         keyboard = [[InlineKeyboardButton("YouTube", callback_data="yt"), InlineKeyboardButton("SoundCloud", callback_data="sc")]]
     else:
@@ -633,10 +702,12 @@ async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SELECT_SOURCE
 
 async def select_source(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await check_blocked(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     context.user_data["source"] = query.data
+    log_action(query.from_user, f"Обрав джерело: {query.data}")
     media_type = context.user_data["type"]
     user_id = query.from_user.id
     if media_type == "audio":
@@ -647,10 +718,12 @@ async def select_source(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_QUERY
 
 async def select_quality(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await check_blocked(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     quality = query.data
+    log_action(query.from_user, f"Обрав якість: {quality}")
     media_type = context.user_data.get("type", "audio")
     base_cost = COSTS[media_type][quality]
     cost = get_final_cost(query.from_user.id, base_cost)
@@ -666,9 +739,12 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if check_spam(update.effective_user.id):
         await update.message.reply_text("⏳ Зачекайте трохи")
         return ConversationHandler.END
-    if await check_blocked(update, context): return ConversationHandler.END
-    if not await is_user_subscribed(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
+    if not await is_user_subscribed(update, context):
+        return ConversationHandler.END
     
+    log_action(update.effective_user, f"Надіслав запит: {update.message.text[:50]}")
     user_query = update.message.text.strip()
     media_type = context.user_data.get("type", "audio")
     user = update.effective_user
@@ -692,6 +768,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif stats.get("priority_passes", 0) > 0:
         priority = 5
         stats["priority_passes"] -= 1
+        log_action(update.effective_user, "Використано Priority Pass!")
         await update.message.reply_text("🚀 Використано Priority Pass!")
     
     await download_queue.put((priority, time.time(), user.id, user_query, media_type, quality, cost, context.user_data.copy(), update.message.chat_id, None))
@@ -712,7 +789,7 @@ async def process_queue():
                 except:
                     user_info = type('obj', (object,), {'username': 'unknown', 'id': user_id})()
                 
-                log_action(user_info, f"Завантаження (Пріоритет {priority}): {user_query}")
+                log_action(user_info, f"Завантаження (Пріоритет {priority}): {user_query[:50]}")
                 
                 if inline_message_id:
                     try:
@@ -743,6 +820,7 @@ async def process_queue():
                     filepath, title, tmpdir = await download_media(user_query, audio=(media_type == "audio"), quality=quality)
                     if not filepath:
                         error_text = f"😕 Нічого не знайдено"
+                        log_action(user_info, f"Нічого не знайдено для: {user_query[:50]}")
                         if inline_message_id:
                             try:
                                 await application.bot.edit_message_text(inline_message_id=inline_message_id, text=error_text)
@@ -802,11 +880,12 @@ async def process_queue():
                             stats["tracks"] += 1
                         else:
                             stats["videos"] += 1
+                        log_action(user_info, f"✅ Успішно завантажено: {title[:50]}")
                         await check_achievements_from_queue(temp_context, user_id)
-                        log_action(user_info, f"✅ Завантажено: {title}")
                         save_data()
                 except Exception as e:
                     error_text = f"❌ Помилка: {e}"
+                    log_action(user_info, f"❌ Помилка завантаження: {e}")
                     if inline_message_id:
                         try:
                             await application.bot.edit_message_text(inline_message_id=inline_message_id, text=error_text)
@@ -814,13 +893,13 @@ async def process_queue():
                             pass
                     else:
                         await application.bot.send_message(chat_id=chat_id, text=error_text)
-                    log_action(user_info, f"❌ Помилка: {e}")
                 finally:
                     if tmpdir and os.path.isdir(tmpdir):
                         shutil.rmtree(tmpdir)
                 download_queue.task_done()
         except Exception as e:
             print(f"Критична помилка в черзі: {e}")
+            log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"Критична помилка в черзі: {e}")
             try:
                 download_queue.task_done()
             except:
@@ -836,18 +915,19 @@ async def check_achievements_from_queue(context, user_id):
             except:
                 pass
 
-# ================= 🔧 ВИПРАВЛЕНА ФУНКЦІЯ ЗАВАНТАЖЕННЯ (БЕЗ COOKIES) =================
-async def download_media(query, audio=True, quality="best"):
+# ================= 🔧 ВИПРАВЛЕНА ФУНКЦІЯ ЗАВАНТАЖЕННЯ =================
+async def download_media(query, audio=True, quality="192"):
     tmpdir = tempfile.mkdtemp()
-    # ВИПРАВЛЕНО: Прибрано завантаження cookies.txt, щоб уникнути помилок
+    log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"Початок завантаження: {query[:50]}")
+    
     base_opts = {
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "ignoreerrors": True,
-        "extractor_retries": 3,
-        "fragment_retries": 3,
+        "ignoreerrors": False,
+        "extractor_retries": 5,
+        "fragment_retries": 5,
         "retry_sleep_functions": {"extractor": lambda n: 2 ** n},
         "extractor_args": {
             "youtube": {
@@ -857,20 +937,16 @@ async def download_media(query, audio=True, quality="best"):
             }
         },
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9,uk;q=0.8",
             "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none"
+            "Connection": "keep-alive"
         },
         "no_check_certificate": True,
-        "socket_timeout": 30,
-        "retries": 3
+        "socket_timeout": 60,
+        "retries": 5
     }
-    # Cookies більше не завантажуються
     
     if audio:
         if quality == "best":
@@ -898,47 +974,60 @@ async def download_media(query, audio=True, quality="best"):
             "postprocessors": [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
     
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        try:
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, query, download=True)
             if not info or ('entries' in info and not info['entries']):
+                log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"Нічого не знайдено для: {query[:50]}")
                 shutil.rmtree(tmpdir)
                 return None, None, None
             entry = info['entries'][0] if 'entries' in info and info['entries'] else info
             files = os.listdir(tmpdir)
             if not files:
+                log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"Файли не створені для: {query[:50]}")
                 shutil.rmtree(tmpdir)
                 return None, None, None
-        except Exception as e:
-            print(f"❌ Download error: {e}")
+            
+            file = files[0]
+            safe_name = clean_filename(file)
+            safe_path = os.path.join(tmpdir, safe_name)
+            if safe_name != file and os.path.exists(os.path.join(tmpdir, file)):
+                os.rename(os.path.join(tmpdir, file), safe_path)
+            
+            title = clean_filename(entry.get("title", "Без назви"))
+            log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"Успішно завантажено: {title[:50]}")
+            return safe_path, title, tmpdir
+    except Exception as e:
+        log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), f"❌ Помилка yt_dlp: {e}")
+        print(f"❌ Download error: {e}")
+        if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir)
-            return None, None, None
-        
-        file = files[0]
-        safe_name = clean_filename(file)
-        safe_path = os.path.join(tmpdir, safe_name)
-        if safe_name != file and os.path.exists(os.path.join(tmpdir, file)):
-            os.rename(os.path.join(tmpdir, file), safe_path)
-        
-        title = clean_filename(entry.get("title", "Без назви"))
-        return safe_path, title, tmpdir
+        return None, None, None
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await check_blocked(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
+    log_action(update.effective_user, "Скасував операцію")
     await update.message.reply_text("Скасовано")
     return ConversationHandler.END
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await check_blocked(update, context): return ConversationHandler.END
+    if await check_blocked(update, context):
+        return ConversationHandler.END
+    log_action(update.effective_user, "Перезапустив бота")
     context.user_data.clear()
     await update.message.reply_text("Перезапуск. Введіть /start")
     return ConversationHandler.END
 
 # ================= ІГРИ ТА ЕКОНОМІКА =================
 async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, "Перевірив /balance")
     stats = get_user_stats(update.effective_user.id)
     vip_status = "👑 VIP" if is_vip_active(update.effective_user.id) else "Звичайний"
     text = f"💰 *Баланс:* {stats['stars']} ⭐\n"
@@ -954,9 +1043,13 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(text)
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Використав промокод: {context.args}")
     if not context.args:
         await update.message.reply_text("❓ Приклад: `/promo CODE`")
         return
@@ -985,9 +1078,13 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def dice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Грав в /dice: {context.args}")
     stats = get_user_stats(update.effective_user.id)
     current_stars = stats.get("stars", 50)
     if current_stars == 0:
@@ -1023,9 +1120,13 @@ async def dice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def flipcoin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Грав в /flipcoin: {context.args}")
     if len(context.args) < 2:
         await update.message.reply_markdown("❓ Приклад: `/flipcoin 20 орел`")
         return
@@ -1059,9 +1160,13 @@ async def flipcoin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= DUEL =================
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
+    if check_spam(update.effective_user.id):
+        return
+    if await check_blocked(update, context):
+        return
+    if not await is_user_subscribed(update, context):
+        return
+    log_action(update.effective_user, f"Створив дуель: {context.args}")
     if len(context.args) < 2:
         await update.message.reply_markdown("❓ Приклад: `/duel 123456 50`")
         return
@@ -1112,6 +1217,7 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"⚔️ Запрошення надіслано")
     except Exception as e:
+        log_action(update.effective_user, f"Помилка створення дуелі: {e}")
         await update.message.reply_text(f"❌ Помилка: {e}")
         if duel_id in duel_data:
             del duel_data[duel_id]
@@ -1123,6 +1229,7 @@ async def duel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = parts[1]
     duel_id = parts[2]
     user_id = query.from_user.id
+    log_action(query.from_user, f"Дуель {action}: {duel_id}")
     if duel_id not in duel_data:
         await query.edit_message_text("❌ Дуель неактуальна")
         return
@@ -1188,118 +1295,36 @@ async def duel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if duel_id in duel_data:
             del duel_data[duel_id]
 
-# ================= INLINE =================
-async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query
-    if not query:
-        return
-    results = []
-    try:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'extract_flat': True,
-            'quiet': True,
-            'noplaylist': True
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, f"ytsearch5:{query}", download=False)
-            if 'entries' in info:
-                for entry in info['entries']:
-                    title = entry.get('title', 'Без назви')
-                    url = entry.get('webpage_url', '')
-                    if not url:
-                        continue
-                    unique_id = base64.urlsafe_b64encode(url.encode()).decode()
-                    results.append(
-                        InlineQueryResultArticle(
-                            id=unique_id,
-                            title=title,
-                            description=f"🎵 {entry.get('channel', 'Невідомий')}",
-                            thumb_url=entry.get('thumbnail'),
-                            input_message_content=InputTextMessageContent(message_text="📥 Завантаження...")
-                        )
-                    )
-    except Exception as e:
-        print(f"Помилка inline: {e}")
-    await update.inline_query.answer(results, cache_time=300)
-
-async def chosen_inline_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.chosen_inline_result.from_user
-    result_id = update.chosen_inline_result.result_id
-    inline_message_id = update.chosen_inline_result.inline_message_id
-    try:
-        url = base64.urlsafe_b64decode(result_id).decode()
-    except:
-        if inline_message_id:
-            try:
-                await context.bot.edit_message_text(inline_message_id=inline_message_id, text="❌ Помилка")
-            except:
-                pass
-        return
-    media_type = "audio"
-    quality = "192"
-    base_cost = COSTS[media_type][quality]
-    cost = get_final_cost(user.id, base_cost)
-    stats = get_user_stats(user.id)
-    if stats["stars"] < cost:
-        if inline_message_id:
-            try:
-                await context.bot.edit_message_text(
-                    inline_message_id=inline_message_id,
-                    text=f"❌ Потрібно {cost} ⭐. Баланс: {stats['stars']}"
-                )
-            except:
-                pass
-        return
-    prio = 1 if is_vip_active(user.id) else 10
-    if not is_vip_active(user.id) and stats.get("priority_passes", 0) > 0:
-        prio = 5
-        stats["priority_passes"] -= 1
-    await download_queue.put((prio, time.time(), user.id, url, media_type, quality, cost, context.user_data.copy(), user.id, inline_message_id))
-    if inline_message_id:
-        try:
-            await context.bot.edit_message_text(
-                inline_message_id=inline_message_id,
-                text=f"🔄 В черзі. Пріоритет: {'VIP' if prio == 1 else 'Високий' if prio == 5 else 'Звичайний'}"
-            )
-        except:
-            pass
-
-async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if check_spam(update.effective_user.id): return
-    if await check_blocked(update, context): return
-    if not await is_user_subscribed(update, context): return
-    if update.effective_user.is_bot:
-        return
-    bot_name = context.bot.username
-    query = update.message.text
-    if f'@{bot_name}' in query:
-        user_query = query.replace(f'@{bot_name}', '').strip()
-        if not user_query or user_query.startswith('/'):
-            await update.message.reply_text("Я готовий! Надішліть назву пісні")
-            return
-        user = update.effective_user
-        search_query = f"ytsearch1:{user_query}"
-        base_cost = COSTS["audio"]["192"]
-        cost = get_final_cost(user.id, base_cost)
-        stats = get_user_stats(user.id)
-        if stats["stars"] < cost:
-            await update.message.reply_markdown(f"❌ Потрібно {cost} ⭐. Баланс: {stats['stars']}")
-            return
-        prio = 1 if is_vip_active(user.id) else 10
-        try:
-            await update.message.reply_text(f"🔍 Шукаю: {user_query}...")
-            await download_queue.put((prio, time.time(), user.id, search_query, "audio", "192", cost, context.user_data.copy(), update.message.chat_id, None))
-        except Exception as e:
-            await update.message.reply_text(f"❌ Помилка: {e}")
-
 # ================= АДМІН КОМАНДИ =================
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    await update.message.reply_markdown(get_text(context, "admin_help_text"))
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Використав /adminhelp")
+    text = """👑 Адмін-панель:
+`/add_stars <ID> <кількість>`
+`/remove_stars <ID> <кількість>`
+`/set_downloads <ID> <кількість>`
+`/user_stats <ID>`
+`/block <ID>`
+`/unblock <ID>`
+`/grant_vip <ID>`
+`/revoke_vip <ID>`
+`/send_to <ID> <текст>`
+`/broadcast <текст>`
+`/bot_stats`
+`/create_promo <код> <зірки> <рази> <дні>`
+`/delete_promo <код>`
+`/list_promos`
+`/set_channel @username`
+`/remove_channel @username`
+`/list_channels`
+`/unset_channel`"""
+    await update.message.reply_markdown(text)
 
 async def add_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Додав зірки: {context.args}")
     try:
         user_id = int(context.args[0])
         amount = int(context.args[1])
@@ -1312,7 +1337,9 @@ async def add_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def remove_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Забрав зірки: {context.args}")
     try:
         user_id = int(context.args[0])
         amount = int(context.args[1])
@@ -1328,7 +1355,9 @@ async def remove_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def set_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Встановив завантаження: {context.args}")
     try:
         user_id = int(context.args[0])
         count = int(context.args[1])
@@ -1341,7 +1370,9 @@ async def set_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def send_to(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Надіслав повідомлення: {context.args[0]}")
     try:
         user_id = int(context.args[0])
         message_text = " ".join(context.args[1:])
@@ -1357,7 +1388,9 @@ async def send_to(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Помилка: {e}")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Почав розсилку")
     if not context.args:
         await update.message.reply_markdown("❓ Використання: `/broadcast <текст>`")
         return
@@ -1375,7 +1408,9 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Завершено\nНадіслано: {success_count}\nНе вдалося: {fail_count}")
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Перевірив /bot_stats")
     total_users = len(user_data)
     total_downloads = sum(s.get("downloads", 0) for s in user_data.values())
     total_tracks = sum(s.get("tracks", 0) for s in user_data.values())
@@ -1385,7 +1420,7 @@ async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for source, count in stats.get("source_counts", {}).items():
             all_sources[source] = all_sources.get(source, 0) + count
     most_popular = max(all_sources, key=all_sources.get).upper() if all_sources else "N/A"
-    text = f"📊 *Статистика:*\n"
+    text = f"📊 *Статистика*:\n"
     text += f"Користувачів: {total_users}\n"
     text += f"Завантажень: {total_downloads}\n"
     text += f"Треків: {total_tracks}\n"
@@ -1394,7 +1429,9 @@ async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(text)
 
 async def user_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Перевірив статистику: {context.args}")
     try:
         user_id = int(context.args[0])
     except:
@@ -1426,7 +1463,9 @@ async def display_user_stats(message, context, user_id):
     await message.reply_markdown(text)
 
 async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Заблокував: {context.args}")
     try:
         user_id = int(context.args[0])
     except:
@@ -1437,7 +1476,9 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Розблокував: {context.args}")
     try:
         user_id = int(context.args[0])
     except:
@@ -1448,7 +1489,9 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def grant_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Надав VIP: {context.args}")
     try:
         user_id = int(context.args[0])
     except:
@@ -1460,7 +1503,9 @@ async def grant_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def revoke_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Забрав VIP: {context.args}")
     try:
         user_id = int(context.args[0])
     except:
@@ -1473,7 +1518,9 @@ async def revoke_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def create_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Створив промокод: {context.args}")
     try:
         code = context.args[0].upper()
         reward = int(context.args[1])
@@ -1488,7 +1535,9 @@ async def create_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Видалив промокод: {context.args}")
     try:
         code = context.args[0].upper()
     except:
@@ -1502,19 +1551,23 @@ async def delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Промокод {code} не знайдено")
 
 async def list_promos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Перевірив список промокодів")
     active_promos = {k: v for k, v in promocodes.items() if v['expires'] > datetime.now() and v['uses'] > 0}
     if not active_promos:
         await update.message.reply_text("😕 Немає промокодів")
         return
-    response = "📜 *Промокоди:*\n"
+    response = "📜 *Промокоди*:\n"
     for code, data in active_promos.items():
         expires_str = data['expires'].strftime('%Y-%m-%d %H:%M')
         response += f"`{code}`: {data['reward']}⭐, {data['uses']} раз(и), до {expires_str}\n"
     await update.message.reply_markdown(response)
 
 async def set_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Додав канал: {context.args}")
     try:
         username = context.args[0]
         if not username.startswith('@'):
@@ -1535,7 +1588,9 @@ async def set_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Не знайдено канал {username}")
 
 async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, f"Видалив канал: {context.args}")
     try:
         username = context.args[0]
         if not username.startswith('@'):
@@ -1553,15 +1608,19 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Канал не знайдено")
 
 async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Перевірив список каналів")
     if not required_channels:
         await update.message.reply_text("📋 Каналів немає")
         return
     channels_list = "\n".join([f"- {ch['username']}" for ch in required_channels])
-    await update.message.reply_markdown(f"📋 *Канали:*\n{channels_list}")
+    await update.message.reply_markdown(f"📋 *Канали*:\n{channels_list}")
 
 async def unset_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        return
+    log_action(update.effective_user, "Вимкнув підписку")
     global required_channels
     required_channels.clear()
     await update.message.reply_text("✅ Підписку вимкнено")
@@ -1569,7 +1628,9 @@ async def unset_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= АДМІН МЕНЮ =================
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return ConversationHandler.END
+    if not is_admin(update.effective_user.id):
+        return ConversationHandler.END
+    log_action(update.effective_user, "Відкрив адмін меню")
     keyboard = [
         [InlineKeyboardButton("➕ Додати ⭐", callback_data="admin_add_stars")],
         [InlineKeyboardButton("➖ Забрати ⭐", callback_data="admin_remove_stars")],
@@ -1585,6 +1646,7 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     action = query.data
+    log_action(query.from_user, f"Адмін меню: {action}")
     if action == "admin_add_stars":
         await query.message.reply_text("Введіть: `ID кількість`")
         return AWAIT_ADD_STARS
@@ -1598,7 +1660,25 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text("Введіть ID")
         return AWAIT_USER_STATS
     elif action == "admin_help":
-        await query.message.reply_markdown(get_text(context, "admin_help_text"))
+        await query.message.reply_markdown("""👑 Адмін-панель:
+`/add_stars <ID> <кількість>`
+`/remove_stars <ID> <кількість>`
+`/set_downloads <ID> <кількість>`
+`/user_stats <ID>`
+`/block <ID>`
+`/unblock <ID>`
+`/grant_vip <ID>`
+`/revoke_vip <ID>`
+`/send_to <ID> <текст>`
+`/broadcast <текст>`
+`/bot_stats`
+`/create_promo <код> <зірки> <рази> <дні>`
+`/delete_promo <код>`
+`/list_promos`
+`/set_channel @username`
+`/remove_channel @username`
+`/list_channels`
+`/unset_channel`""")
         return ADMIN_MENU
     elif action == "admin_exit":
         await query.message.edit_text("Скасовано")
@@ -1665,7 +1745,6 @@ async def periodic_save():
         save_data()
 
 # ================= MAIN =================
-application = None
 async def main():
     global application
     load_data()
@@ -1743,13 +1822,12 @@ async def main():
     
     application.add_handler(conv_handler)
     application.add_handler(admin_conv_handler)
-    application.add_handler(InlineQueryHandler(inline_query))
-    application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND, text_message_handler))
     
     print("🤖 Бот активний!")
+    log_action(type('obj', (object,), {'username': 'system', 'id': 0})(), "Бот запущено")
     asyncio.create_task(process_queue())
     asyncio.create_task(periodic_save())
-    await application.run_polling()
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     asyncio.run(main())
