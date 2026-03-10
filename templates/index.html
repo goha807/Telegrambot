@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root { --tg-bg: var(--tg-theme-bg-color, #1a1a1a); --tg-text: var(--tg-theme-text-color, #ffffff); --accent: #ffd700; }
+        body { background: var(--tg-bg); color: var(--tg-text); font-family: sans-serif; padding: 20px; margin: 0; }
+        .card { background: rgba(255,255,255,0.1); border-radius: 15px; padding: 20px; margin-bottom: 20px; border: 1px solid var(--accent); }
+        .stats { display: flex; justify-content: space-between; font-size: 1.2em; }
+        .btn { background: var(--accent); color: #000; border: none; padding: 12px; border-radius: 10px; width: 100%; font-weight: bold; cursor: pointer; }
+        .shop-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+        input { width: 100%; padding: 10px; border-radius: 8px; border: none; margin: 10px 0; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2 id="user-name">Привіт!</h2>
+        <div class="stats">
+            <div>🌟 Зірки: <span id="stars">0</span></div>
+            <div>👑 VIP: <span id="vip">Ні</span></div>
+        </div>
+    </div>
+
+    <h3>🎵 Пошук музики</h3>
+    <input type="text" id="musicQuery" placeholder="Введіть назву пісні...">
+    <p style="font-size: 0.8em; opacity: 0.7;">*Після натискання назва скопіюється, просто відправ її боту.</p>
+    <button class="btn" onclick="copyAndClose()">Знайти та завантажити</button>
+
+    <h3>🛒 Магазин</h3>
+    <div class="shop-item">
+        <span>100 Зірок</span>
+        <button onclick="alert('Зверніться до адміна для оплати')" style="padding: 5px 10px;">50 грн</button>
+    </div>
+    <div class="shop-item">
+        <span>VIP Статус</span>
+        <button onclick="alert('Зверніться до адміна для оплати')" style="padding: 5px 10px;">150 грн</button>
+    </div>
+    <div class="shop-item">
+        <span>Сюрприз-бокс 🎁</span>
+        <button onclick="alert('Скоро у продажу!')" style="padding: 5px 10px;">?? грн</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        async function loadData() {
+            const user = tg.initDataUnsafe.user;
+            if (user) {
+                document.getElementById('user-name').innerText = `Привіт, ${user.first_name}!`;
+                try {
+                    const response = await fetch(`/api/user/${user.id}`);
+                    const data = await response.json();
+                    document.getElementById('stars').innerText = data.stars || 0;
+                    document.getElementById('vip').innerText = data.is_vip ? "Так" : "Ні";
+                } catch (e) { console.error("Помилка завантаження даних"); }
+            }
+        }
+
+        function copyAndClose() {
+            const q = document.getElementById('musicQuery').value;
+            if (q) {
+                // Оскільки ми не міняємо код бота, просто копіюємо текст
+                navigator.clipboard.writeText(q);
+                tg.showAlert("Назва скопійована! Просто встав її в чат з ботом.");
+            }
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
