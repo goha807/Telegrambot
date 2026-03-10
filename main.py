@@ -21,7 +21,8 @@ from telegram.error import TimedOut, BadRequest
 nest_asyncio.apply()
 
 # ================= КОНФІГУРАЦІЯ =================
-BOT_TOKEN = "8213254007:AAFQkGiQqi1YirAvF4VuGcF3CL6WpqFVSGA"  # 🔴 ЗМІНІТЬ ЦЕЙ ТОКЕН!
+# 🔴 ВСТАВТЕ НОВИЙ ТОКЕН СЮДИ!
+BOT_TOKEN = "8213254007:AAFQkGiQqi1YirAvF4VuGcF3CL6WpqFVSGA"
 ADMINS_IDS = [1813590984]
 MAX_SIZE = 50 * 1024 * 1024
 SPAM_DELAY = 2.0
@@ -48,6 +49,13 @@ SHOP_PRICES = {
     "unlimited_24h": 500,
     "priority_pass": 50
 }
+
+# ================= ЗАВАНТАЖЕННЯ COOKIES ДЛЯ RAILWAY =================
+# Завантажуємо cookies.txt зі змінної середовища (обов'язково для хостингів!)
+if os.getenv('COOKIES_TXT'):
+    with open('cookies.txt', 'w', encoding='utf-8') as f:
+        f.write(os.getenv('COOKIES_TXT'))
+    print("✅ Cookies loaded from environment variable")
 
 # ================= ЗБЕРЕЖЕННЯ ДАНИХ =================
 def ensure_data_dir():
@@ -467,7 +475,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_subscribed(update, context): return
     user = update.effective_user
     stats = get_user_stats(user.id)
-    vip_status = "👑 VIP" if is_vip_active(user.id) else "Звичайный"
+    vip_status = "👑 VIP" if is_vip_active(user.id) else "Звичайний"
     text = f"📊 *Статистика:*\n"
     text += f"👑 Статус: {vip_status}\n"
     text += f"🎵 Треків: {stats['tracks']}\n"
@@ -857,27 +865,45 @@ async def check_achievements_from_queue(context, user_id):
 async def download_media(query, audio=True, quality="best"):
     tmpdir = tempfile.mkdtemp()
     
-    # Налаштування для обходу YouTube bot detection
+    # Розширені налаштування для обходу YouTube bot detection на хостингах
     base_opts = {
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "ignoreerrors": True,
+        "extractor_retries": 3,
+        "fragment_retries": 3,
+        "retry_sleep_functions": {"extractor": lambda n: 2 ** n},
+        
+        # Критично: використовуємо різні клієнти YouTube для обходу блокувань
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "web", "tv_embedded"],
-                "player_skip": ["webpage", "meta"]
+                "player_client": ["ios", "web", "tv_embedded", "android"],
+                "player_skip": ["webpage", "meta"],
+                "initial_data": ["*"]
             }
         },
+        
+        # Реалістичні заголовки браузера (iPhone Safari)
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5"
-        }
+            "Accept-Language": "en-US,en;q=0.9,uk;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none"
+        },
+        
+        # Додаткові опції для стабільності
+        "no_check_certificate": True,
+        "socket_timeout": 30,
+        "retries": 3
     }
     
-    # Підтримка cookies.txt для авторизації (опціонально)
+    # Підтримка cookies.txt (ОБОВ'ЯЗКОВО для Railway/хостингів!)
     if os.path.exists('cookies.txt'):
         base_opts["cookiefile"] = 'cookies.txt'
     
@@ -910,17 +936,18 @@ async def download_media(query, audio=True, quality="best"):
     with yt_dlp.YoutubeDL(opts) as ydl:
         try:
             info = await asyncio.to_thread(ydl.extract_info, query, download=True)
+            
             if not info or ('entries' in info and not info['entries']):
                 shutil.rmtree(tmpdir)
                 return None, None, None
-            if 'entries' in info and info['entries']:
-                entry = info['entries'][0]
-            else:
-                entry = info
+            
+            entry = info['entries'][0] if 'entries' in info and info['entries'] else info
             files = os.listdir(tmpdir)
+            
             if not files:
                 shutil.rmtree(tmpdir)
                 return None, None, None
+                
         except Exception as e:
             print(f"❌ Download error: {e}")
             shutil.rmtree(tmpdir)
@@ -929,8 +956,10 @@ async def download_media(query, audio=True, quality="best"):
     file = files[0]
     safe_name = clean_filename(file)
     safe_path = os.path.join(tmpdir, safe_name)
+    
     if safe_name != file and os.path.exists(os.path.join(tmpdir, file)):
         os.rename(os.path.join(tmpdir, file), safe_path)
+    
     title = clean_filename(entry.get("title", "Без назви"))
     return safe_path, title, tmpdir
 
